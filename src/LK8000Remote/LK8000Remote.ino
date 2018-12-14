@@ -9,18 +9,19 @@
 
 //button pins
 #define CUSTOM_KEY_LEFT_PIN (A3)
+#define ENTER_PIN (A4)
 
 //HID codes for each button
-#define CUSTOM_KEY_LEFT (0x27) //'9'
-#define CUSTOM_KEY_RIGHT (0x0F) //'l'
-#define UP (0x0B) //'h'
-#define DOWN (0x0A) //'g'
-#define LEFT (0x22) //'5'
-#define RIGHT (0x2C) // spacebar
-#define BB_LEFT (0x1F) //'2'
-#define NEXT_PAGE (0x04) //'a'
-#define BB_RIGHT (0x1D) //'z'
-#define LEFT_SHIFT (0xE1) //modifier code (leave key code blank)
+#define CUSTOM_KEY_LEFT (HID_KEY_9) //'9'
+#define CUSTOM_KEY_RIGHT (HID_KEY_1) //'l'
+#define UP (HID_KEY_H) //'h'
+#define DOWN (HID_KEY_G) //'g'
+#define LEFT (HID_KEY_5) //'5'
+#define RIGHT (HID_KEY_SPACE) // spacebar
+#define BB_LEFT (HID_KEY_2) //'2'
+#define NEXT_PAGE (HID_KEY_A) //'a'
+#define BB_RIGHT (HID_KEY_Z) //'z'
+#define ENTER (KEYBOARD_MODIFIER_LEFTSHIFT) //modifier code
 
 #define DELAY (100)
 
@@ -28,7 +29,7 @@ enum { LEFT_UP=-1, CENTER=0, RIGHT_DOWN=1 };
 
 static unsigned long last_interrupt_time = 0;
 
-long debouncing_time = 100; //Debouncing Time in Milliseconds
+long debouncing_time = 125; //Debouncing Time in Milliseconds
 volatile unsigned long last_micros;
 
 BLEDis bledis;
@@ -44,9 +45,11 @@ void setup()
   
   pinMode(JOY_SWITCH_PIN, INPUT_PULLUP);
   pinMode(CUSTOM_KEY_LEFT_PIN, INPUT_PULLUP);
+  pinMode(ENTER_PIN, INPUT_PULLUP);
   
   attachInterrupt(digitalPinToInterrupt(JOY_SWITCH_PIN), joyButtonCallback, ISR_DEFERRED | FALLING);
   attachInterrupt(digitalPinToInterrupt(CUSTOM_KEY_LEFT_PIN), customKeyLeftCallback, ISR_DEFERRED | FALLING);
+  attachInterrupt(digitalPinToInterrupt(ENTER_PIN), enterCallback, ISR_DEFERRED | FALLING);
   
   Serial.begin(115200);
   
@@ -186,7 +189,8 @@ void joyButtonCallback(void)
     {
       Serial.println("Joy Switch: 0");
       
-      sendModOnly(LEFT_SHIFT);
+      keyboard.keyboardReport({}, NEXT_PAGE);
+      keyboard.keyRelease();
       
       last_micros = micros();
     }
@@ -200,8 +204,25 @@ void customKeyLeftCallback(void)
     Serial.print("Switch: ");
     Serial.println(digitalRead(CUSTOM_KEY_LEFT_PIN));
     
-    keyboard.keyboardReport({}, CUSTOM_KEY_LEFT);
+    //keyboard.keyboardReport({}, CUSTOM_KEY_LEFT);
+    keyboard.keyPress(0xD);
     keyboard.keyRelease();
+    
+    last_micros = micros();
+  }
+}
+
+void enterCallback(void)
+{
+  if((long)(micros() - last_micros) >= debouncing_time * 1000) 
+  {
+    Serial.print("Switch: ");
+    Serial.println(digitalRead(ENTER_PIN));
+
+//    keyboard.keyPress(0x11);
+//    keyboard.keyRelease();
+
+    sendModOnly(ENTER);
     
     last_micros = micros();
   }
@@ -209,7 +230,7 @@ void customKeyLeftCallback(void)
 
 void sendModOnly(uint8_t modifier)
 {
-  uint8_t code[] = {};
+  uint8_t code[6] = {HID_KEY_NONE};
   keyboard.keyboardReport(modifier, code);
   keyboard.keyRelease();
 }

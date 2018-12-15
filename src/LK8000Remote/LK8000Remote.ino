@@ -1,14 +1,17 @@
 #include <bluefruit.h>
 
 //joystick
-#define JOYSTICK_DEADZONE  (200)
+#define JOYSTICK_DEADZONE  (.8)
 #define JOY_X_PIN (A0)
 #define JOY_Y_PIN (A1)
-#define JOY_SWITCH_PIN (A2)
-#define JOY_MAX_VALUE (950)
+#define JOY_MAX_VALUE (1023)
 
 //button pins
 #define CUSTOM_KEY_LEFT_PIN (A3)
+#define CUSTOM_KEY_RIGHT_PIN (A3)
+#define BB_LEFT_PIN (A3)
+#define NEXT_PAGE_PIN (A2)
+#define BB_RIGHT_PIN (A3)
 #define ENTER_PIN (A4)
 
 //HID codes for each button
@@ -23,38 +26,54 @@
 #define BB_RIGHT (HID_KEY_Z) //'z'
 #define ENTER (KEYBOARD_MODIFIER_LEFTSHIFT) //modifier code
 
-#define DELAY (100)
+#define DELAY (100) //delay between joystick reads in the main loop.
+#define DEBOUNCE_TIME (125) //Debouncing Time in Milliseconds
 
+#define TX_POWER (4) //Power level of BT transmitter. Accepted values are: -20, -16, -12, -8, -4, 0, 4 in dBm.
+
+//represents the directions of the joysticks axes
 enum { LEFT_UP=-1, CENTER=0, RIGHT_DOWN=1 };
 
-static unsigned long last_interrupt_time = 0;
-
-long debouncing_time = 125; //Debouncing Time in Milliseconds
 volatile unsigned long last_micros;
 
+//Bluetooth device information service.
 BLEDis bledis;
+
+//The HID keyboard
 BLEHidAdafruit keyboard;
 
+//The previous position of the joystick axes. Used to determine when they've moved from center.
 int x_prev_position;
 int y_prev_position;
 
 void setup() 
 {
+  //joystick starts in the center
   x_prev_position = CENTER;
   y_prev_position = CENTER;
-  
-  pinMode(JOY_SWITCH_PIN, INPUT_PULLUP);
+
+  //Read it in 10-bit resolution 0-1023
+  analogReadResolution(10);
+
+  //pullup resistors on button input pins
   pinMode(CUSTOM_KEY_LEFT_PIN, INPUT_PULLUP);
+  pinMode(CUSTOM_KEY_RIGHT_PIN, INPUT_PULLUP);
+  pinMode(BB_LEFT_PIN, INPUT_PULLUP);
+  pinMode(NEXT_PAGE_PIN, INPUT_PULLUP);
+  pinMode(BB_RIGHT_PIN, INPUT_PULLUP);
   pinMode(ENTER_PIN, INPUT_PULLUP);
-  
-  attachInterrupt(digitalPinToInterrupt(JOY_SWITCH_PIN), joyButtonCallback, ISR_DEFERRED | FALLING);
+
+  //Use interrupt callbacks on the falling edge of button pins
   attachInterrupt(digitalPinToInterrupt(CUSTOM_KEY_LEFT_PIN), customKeyLeftCallback, ISR_DEFERRED | FALLING);
+  attachInterrupt(digitalPinToInterrupt(CUSTOM_KEY_RIGHT_PIN), customKeyRightCallback, ISR_DEFERRED | FALLING);
+  attachInterrupt(digitalPinToInterrupt(BB_LEFT_PIN), bbLeftCallback, ISR_DEFERRED | FALLING);
+  attachInterrupt(digitalPinToInterrupt(NEXT_PAGE_PIN), nextPageCallback, ISR_DEFERRED | FALLING);
+  attachInterrupt(digitalPinToInterrupt(BB_RIGHT_PIN), bbRightCallback, ISR_DEFERRED | FALLING);
   attachInterrupt(digitalPinToInterrupt(ENTER_PIN), enterCallback, ISR_DEFERRED | FALLING);
   
   Serial.begin(115200);
   
   Bluefruit.begin();
-  // Set max power. Accepted values are: -40, -30, -20, -16, -12, -8, -4, 0, 4
   Bluefruit.setTxPower(4);
   Bluefruit.setName("LK8000 Remote");
 
@@ -119,25 +138,17 @@ void loop()
   delay(DELAY);
 }
 
+/**
+ * Read the joystick values and send any appropriate keys.
+ */
 void readJoystick()
 {
-  int ox = analogRead(JOY_X_PIN);
-  int oy = analogRead(JOY_Y_PIN);
-                     // FYI: output = map(intput,from low,from high,to low,to high)
-  int mx = map(ox,0,JOY_MAX_VALUE,-512,512);
-  int my = map(oy,0,JOY_MAX_VALUE,-512,512);
+  int current_x_position = joyToDigital(analogRead(JOY_X_PIN));
+  int current_y_position = joyToDigital(analogRead(JOY_Y_PIN));
 
-  int dx = abs(mx) < JOYSTICK_DEADZONE ? 0 : mx;
-  int dy = abs(my) < JOYSTICK_DEADZONE ? 0 : my;
-
-  int fx = map(dx, -500, 500, -1, 1);
-  int fy = map(dy, -500, 500, -1, 1);
-
-  if(x_prev_position == CENTER && fx != CENTER)
+  if(x_prev_position == CENTER && current_x_position != CENTER)
   {
-    Serial.println("Sending Joy dir.");
-    
-    if(fx == RIGHT_DOWN)
+    if(current_x_position == RIGHT_DOWN)
       keyboard.keyboardReport( {}, RIGHT);
     else
       keyboard.keyboardReport( {}, LEFT);
@@ -145,11 +156,9 @@ void readJoystick()
     keyboard.keyRelease();
   }
 
-  if(y_prev_position == CENTER && fy != CENTER)
+  if(y_prev_position == CENTER && current_y_position != CENTER)
   {
-    Serial.println("Sending Joy dir.");
-    
-    if(fy == RIGHT_DOWN)
+    if(current_y_position == RIGHT_DOWN)
       keyboard.keyboardReport( {}, DOWN);
     else
       keyboard.keyboardReport( {}, UP);
@@ -157,8 +166,25 @@ void readJoystick()
     keyboard.keyRelease();
   }
 
-  x_prev_position = fx;
-  y_prev_position = fy;
+  x_prev_position = current_x_position;
+  y_prev_position = current_y_position;
+}
+
+/**
+ * Takes the raw output from the joystick axis pin and translates it to either
+ * a -1, 0, or 1.
+ */
+int joyToDigital(int axisValue)
+{
+  int posThreshold = (JOY_MAX_VALUE / 2) + (JOY_MAX_VALUE * (JOYSTICK_DEADZONE / 2));
+  int negThreshold = (JOY_MAX_VALUE / 2) - (JOY_MAX_VALUE * (JOYSTICK_DEADZONE / 2));
+
+  if (axisValue < negThreshold)
+    return LEFT_UP;
+  if (axisValue > posThreshold)
+    return RIGHT_DOWN;
+
+  return CENTER;
 }
 
 /**
@@ -181,45 +207,49 @@ void set_keyboard_led(uint8_t led_bitmap)
   }
 }
 
-void joyButtonCallback(void)
-{
-  if((long)(micros() - last_micros) >= debouncing_time * 1000) 
-  {
-    if(!digitalRead(JOY_SWITCH_PIN))
-    {
-      Serial.println("Joy Switch: 0");
-      
-      keyboard.keyboardReport({}, NEXT_PAGE);
-      keyboard.keyRelease();
-      
-      last_micros = micros();
-    }
-  }
-}
-
+//Callbacks for the various buttons
 void customKeyLeftCallback(void)
 {
-  if((long)(micros() - last_micros) >= debouncing_time * 1000) 
+  if(debounced()) 
   {
     Serial.print("Switch: ");
     Serial.println(digitalRead(CUSTOM_KEY_LEFT_PIN));
     
-    //keyboard.keyboardReport({}, CUSTOM_KEY_LEFT);
-    keyboard.keyPress(0xD);
+    keyboard.keyboardReport({}, CUSTOM_KEY_LEFT);
     keyboard.keyRelease();
     
     last_micros = micros();
   }
 }
 
+void customKeyRightCallback(void)
+{
+  
+}
+
+void bbLeftCallback(void)
+{
+  
+}
+
+void nextPageCallback(void)
+{
+  
+}
+
+void bbRightCallback(void)
+{
+  
+}
+
 void enterCallback(void)
 {
-  if((long)(micros() - last_micros) >= debouncing_time * 1000) 
+  if(debounced()) 
   {
     Serial.print("Switch: ");
     Serial.println(digitalRead(ENTER_PIN));
 
-//    keyboard.keyPress(0x11);
+//    keyboard.keyPress(0x2007);
 //    keyboard.keyRelease();
 
     sendModOnly(ENTER);
@@ -228,9 +258,20 @@ void enterCallback(void)
   }
 }
 
+/**
+ * Sends the modifier with a blank key code.
+ */
 void sendModOnly(uint8_t modifier)
 {
   uint8_t code[6] = {HID_KEY_NONE};
   keyboard.keyboardReport(modifier, code);
   keyboard.keyRelease();
+}
+
+/**
+ * If enough time has passed to be considered debounced.
+ */
+bool debounced(void)
+{
+  return (long)(micros() - last_micros) >= DEBOUNCE_TIME * 1000;
 }

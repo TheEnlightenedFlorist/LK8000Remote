@@ -8,15 +8,15 @@
 
 //button pins
 #define CUSTOM_KEY_LEFT_PIN (A3)
-#define CUSTOM_KEY_RIGHT_PIN (A3)
-#define BB_LEFT_PIN (A3)
-#define NEXT_PAGE_PIN (A2)
-#define BB_RIGHT_PIN (A3)
-#define ENTER_PIN (A4)
+#define CUSTOM_KEY_RIGHT_PIN (A4)
+#define BB_LEFT_PIN (A5)
+#define NEXT_PAGE_PIN (12)
+#define BB_RIGHT_PIN (13)
+#define ENTER_PIN (A2)
 
 //HID codes for each button
 #define CUSTOM_KEY_LEFT (HID_KEY_9) //'9'
-#define CUSTOM_KEY_RIGHT (HID_KEY_1) //'l'
+#define CUSTOM_KEY_RIGHT (HID_KEY_L) //'l'
 #define UP (HID_KEY_H) //'h'
 #define DOWN (HID_KEY_G) //'g'
 #define LEFT (HID_KEY_5) //'5'
@@ -224,22 +224,58 @@ void customKeyLeftCallback(void)
 
 void customKeyRightCallback(void)
 {
-  
+  if(debounced()) 
+  {
+    Serial.print("Switch: ");
+    Serial.println(digitalRead(CUSTOM_KEY_RIGHT_PIN));
+    
+    keyboard.keyboardReport({}, CUSTOM_KEY_RIGHT);
+    keyboard.keyRelease();
+    
+    last_micros = micros();
+  }
 }
 
 void bbLeftCallback(void)
 {
-  
+  if(debounced()) 
+  {
+    Serial.print("Switch: ");
+    Serial.println(digitalRead(BB_LEFT_PIN));
+    
+    keyboard.keyboardReport({}, BB_LEFT);
+    keyboard.keyRelease();
+    
+    last_micros = micros();
+  }
 }
 
 void nextPageCallback(void)
 {
-  
+  if(debounced()) 
+  {
+    Serial.print("Switch: ");
+    Serial.println(digitalRead(NEXT_PAGE_PIN));
+    
+    keyboard.keyboardReport({}, NEXT_PAGE);
+    keyboard.keyRelease();
+    
+    last_micros = micros();
+  }
 }
 
 void bbRightCallback(void)
 {
-  
+  if(debounced()) 
+  {
+    Serial.print("Switch: ");
+    Serial.println(digitalRead(BB_RIGHT_PIN));
+    
+    keyboard.keyboardReport({}, BB_RIGHT);
+    keyboard.keyRelease();
+    
+    last_micros = micros();
+  }
 }
 
 void enterCallback(void)
